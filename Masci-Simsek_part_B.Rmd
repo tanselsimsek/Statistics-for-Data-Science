@@ -1,0 +1,129 @@
+---
+title: "Homework 1 - Part B"
+output: html_document
+---
+
+### Leonardo Masci and Tansel Simsek (Group 20)
+
+In this exercise, we are asked to simulate the preferential attachment process and to draw a plot showing its complimentary cumulative degree distribution.
+
+Once again, we start off by loading the necessary packages into the library.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggraph)
+library(igraph)
+library(sdpt3r)
+library(Matrix)
+library(poweRlaw)
+```
+
+Before starting our simulations, we create the initial graph we will be working with. We used the 'make_ring' function from the igraph package to make a directed ring graph with 4 vertices that are labeled.
+
+```{r }
+x<-make_ring(4,directed=TRUE)
+plot(x)
+```
+
+Next, we implement the preferential attachment process for 4 networks, for each of which we continue adding pages until there are 100,000. The process starts off by flipping a coin for each vertex added, since the probability of choosing one method or the other is 0.5.
+When the coin lands on heads (t=0), the new page linked to another chosen uniformly at random among the existing pages in the network. Simulating this in our graph was easy, as we simply had to uniformly extract a vertex among the vertices in the graph and link the new vertex to that one.
+On the other hand when the coin lands on heads (t=1) the new page's link is copied from existing links. To achieve this, we created an array containing every vertex that has another vertex linked to it. For example, if the vertex 1 had three links it would appear three times in the array. In this way, we were able to obtain weighted probabilities by uniformly sampling from that array.
+
+```{r warning= FALSE}
+
+network_list <- list()
+for (j in 1:4){
+  x<-make_ring(4,directed=TRUE)
+  g<-.5
+  v<-length(V(x))
+  a<-as.integer(V(x))
+  V(x)$name <- as.character(1:v)
+  for (i in 5:100000){
+    x<-add.vertices(x,1,attr=c(name=i))
+    t<-sample(c(0,1),1,replace=TRUE,prob=c(g,1-g))
+    if (t==0){
+      v<-length(V(x))
+      V(x)$name <- as.character(1:v)
+      which_vertex<-as.integer(runif(1,min=1,max=v))
+      a<-c(a,which_vertex)
+      x<-add.edges(x,c(i,which_vertex))
+    } else {
+      which_vertex<-sample(a,1,replace=TRUE,prob=c(rep(1/length(a),length(a))))
+      a<-c(a,which_vertex)
+      x<-add.edges(x,c(i,which_vertex))
+    }
+  }
+  network_list <- append(network_list, list(x))
+  nam <- paste("Network ", j, sep = "")
+  assign(nam, x)
+  names <- c(names, nam)
+}
+
+
+```
+
+After creating our networks, we draw the log-log plots of their empirical degree distribution, which show the number of vertices that correspond to each degree. The degree of a vertex is the number of links to other vertices it has.
+
+```{r warning= FALSE}
+par(mfrow=c(2,2))
+
+for (i in 1:length(network_list)){
+dd <- degree_distribution(network_list[[i]])
+plot(dd[2:length(dd)], log="xy", main = names[i+1],xlab = "Degree(Log)", ylab = "Frequency(Log)", col = "blue", type = "h")
+}
+```
+
+Finally, we show the log-log plots of the complimentary cumulative degree distributions. 
+
+```{r  warning= FALSE}
+mynamestheme <- theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (15)), 
+                 legend.title = element_text(colour = "steelblue",  face = "bold.italic", family = "Helvetica"), 
+                 legend.text = element_text(face = "italic", colour="steelblue4",family = "Helvetica"), 
+                  axis.title = element_text(family = "Helvetica", size = (10), colour = "steelblue4"),
+                  axis.text = element_text(family = "Courier", colour = "cornflowerblue", size = (10)))
+for (i in 1:length(network_list)){
+  df <- degree(network_list[[i]])
+  df <- data.frame(df)
+  df <- data.frame(x = df$df)
+  p  <- ggplot(df, aes(x)) + stat_ecdf()
+  pg <- ggplot_build(p)$data[[1]]
+  print(ggplot(pg, aes(x = x, y = 1-y ))+mynamestheme +labs(title = paste(names[i+1], "\nEmpirical Degree Distribution(log-log)"), y="Frequency of Vertices", x = "Degree") + geom_step() +scale_x_log10() +scale_y_log10())
+}
+
+```
+
+We now want to check whether the degree distributions follow a Poisson or a power law. Since all of the networks have similar distributions, we can procede with our analysis using just one of them. We chose the first network.
+In order to do this, we will be using the package `poweRlaw` and some of its functions. This way we are able to create a plot showing our distribution and both models, to compare how well they fit.
+
+```{r}
+network<-network_list[[1]]
+df <- degree(network)
+df <- data.frame(df)
+df <- data.frame(x = df$df)
+values <- df$x
+set.seed(1)
+m1 = displ$new(values)
+m1$setPars(estimate_pars(m1))
+m2 = dispois$new(values)
+m2$setPars(estimate_pars(m2))
+plot(m2, ylab = "CDF")
+lines(m1, col = 4)
+lines(m2, col = 2, lty = 2)
+```
+
+The red line being the Poisson distribution and the blue one the Power Law. It is clear that the latter is a better fit for our distribution, but we also want to prove this formally.
+Using the `compare_distributions` function we can check two hypothesis:
+1. Both distributions are equally far from the true distribution
+2. The second distribution is better than the first one
+
+```{r}
+comp = compare_distributions(m1, m2)
+comp$p_two_sided
+compare_distributions(m1, m2)$p_one_sided
+compare_distributions(m2, m1)$p_one_sided
+```
+
+For the first hypothesis, tested via `p_two_sided`, we get a value of 0.0, so we reject it. Therefore, one distribution must be better than the other one.
+To check which one is better we use `p_one_sided`. As we would expect, we get opposite values for the two hypotheses, rejecting the first one. So we can conclude that m1 is a better fit than m2. In our case, m1 is the power law distribution, which makes sense in light of what we saw in the graph above.
+
+In conclusion, the degree distribution seems to be following a power law distribution.

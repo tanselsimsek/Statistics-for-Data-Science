@@ -1,0 +1,249 @@
+---
+title: "Homework 3"
+author: "Leonardo Masci & Tansel Simsek"
+date: "19/2/2021"
+output: html_document
+---
+
+The aim of this homework is to model the brain as a network in order to handle fundamental neuroscience research questions as a graph-analysis problem. The dataset is taken from the Autism Brain Imagine Data Exchange (ABIDE) project, and since it is provided to us already clean and pre-processed there is no need to take extra processing steps. The dataset is divided in two different groups, the first comprising people with autism and the second people without. We will conduct an analysis to check whether a meaningful difference can be found between the two groups in terms of co-activations.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(abind)
+require(DescTools)
+require(combinat)
+require(igraph)
+```
+
+### Point 1
+
+In this first point we were simply asked to get familiar with the data we would be working on, as this is quite a complex topic. We load the data and pool it together to visualize it.
+
+```{r}
+load("hw3_data.RData")
+asd_sel_combined <- do.call(rbind ,asd_sel)
+td_sel_combined <- do.call(rbind ,td_sel)
+```
+
+As we know, the ultimate goal of pooling data is to have a more clear vision of the differences between two given groups. In the case at hand, rather than working with 12 separate subjects per group, it would be ideal to have one merged dataset per group and proceed with our analysis from that. Of course, pooling has to be done under the assumption that the different data comes from the same distribution, so in this case that all subjects within one group have similar distributions among the different variables. This condition is actually not respected in the dataset at hand, which can easily be verified by a test such as Welch's. For this reason, we mostly focus on the single subjects when conducting our analysis rather than on the pooled data.
+
+For this reason, we decide to "pool" the data by simply merging different subjects in each group into only one single dataset without applying any operation to the values. So in the end we obtain a dataframe where each column has 1740(145*12) values coming from the 12 different subjects in each group. 
+
+### Point 2
+
+After this initial step, we move onto the main point of the assignment. Our final objective is to observe differences in the brain of people who have autism and compared to those who don't. To do this, we work with graphs. Since the provided dataset shows values for different regions of the brain, we can simply calculate their correlations to see the ways in which different areas of the brain are connected to each other. We apply this steps on both the complete datasets (all 12 subjects per group) and on the pooled data mentioned above.
+
+```{r}
+asd_comb_cor <- cor(asd_sel_combined)
+td_comb_cor <- cor(td_sel_combined)
+asd_cor <- lapply(asd_sel, cor)
+td_cor <- lapply(td_sel, cor)
+```
+
+Once the correlation matrices are calculated, we set a threshold equal to the 80th percentile to only take into account the strongest correlations we encounter. Having created an empty matrix, we fill it in with the correlation values that are higher than the threshold, while all the other values are set to 0.
+In the following function, we take as input the number of the subject and the correlation list we are working on, as well as whether to take into account Bonferroni correction. When we do, we change the alpha so that it takes into account the size of the sample. The results of this operation are discussed later on.
+
+Moreover, the function utilizes Fisher Z-transform to create the confidence intervals for the correlation values. The upper and lower bound of these intervals are then compared with the threshold to choose whether to include an edge in the final output.
+
+Finally, the function also prints out the value of the threshold and as well as the amount of values above the threshold. These determine the edges in the final graph.
+
+To apply the same function to pooled data, we created a very similar function named `patientAnalysisP`, which only differs for the inputs required (no need to give patient number, since it's the merged data).
+
+```{r}
+patientAnalysis <- function(subject, cor_list, bonferroni = TRUE){
+  alpha <- .05
+  n <- 116
+  r <- cor_list[[subject]]
+  t <- quantile(r[lower.tri(r, diag = FALSE)], .8)
+  for (i in 1:n){
+    for (j in 1:n){
+      if (i==j){
+        r[i,j] <- 0
+      }
+    }
+  }
+  print(t)
+  z <- atanh(r)
+  sigma <- 1/sqrt(n -3 )
+  if (bonferroni == TRUE){
+    m <- length(combn(n, 2))
+    alpha <- alpha/m
+  }
+  low_b <- z - sigma * qnorm(1 - alpha)
+  up_b  <- z + sigma * qnorm(1 - alpha)
+  
+  final_matrix <- matrix(0, n, n)
+  k <- 0
+  for (i in 1:n){
+    for (j in 1:n){
+      if ((t < low_b[i,j]) | (-t > up_b[i,j])){
+        final_matrix[i,j] <- round(abs(r[i,j]), 3)
+        k <- k+1
+      }
+    }
+  }
+  print(k)
+  final_matrix
+}
+
+patientAnalysisP <- function(cor_mat, bonferroni = TRUE){
+  alpha <- .05
+  n <- 116
+  r <- cor_mat
+  t <- quantile(r[lower.tri(r, diag = FALSE)], .8)
+  for (i in 1:n){
+    for (j in 1:n){
+      if (i==j){
+        r[i,j] <- 0
+      }
+    }
+  }
+  print(t)
+  z <- atanh(r)
+  sigma <- 1/sqrt(n -3 )
+  if (bonferroni == TRUE){
+    m <- length(combn(n, 2))
+    alpha <- alpha/m
+  }
+  low_b <- z - sigma * qnorm(1 - alpha)
+  up_b  <- z + sigma * qnorm(1 - alpha)
+  
+  final_matrix <- matrix(0, n, n)
+  k <- 0
+  for (i in 1:n){
+    for (j in 1:n){
+      if ((t < low_b[i,j]) | (-t > up_b[i,j])){
+        final_matrix[i,j] <- round(abs(r[i,j]), 3)
+        k <- k+1
+      }
+    }
+  }
+  print(k)
+  final_matrix
+}
+
+```
+
+We proceed in our analysis by looking at both the merged data and the raw one. On the assumption that the order of the subjects in the group is not correlated to any other variable, we apply the function to first 6 patients of each group, since looking at all 12 of them would take too much space and take away from the main point of our analysis. In the code below, the group of individuals with autism (dataset asd) is referred to as "a", while the second group (td) as "b". 
+
+```{r}
+p1a <- patientAnalysis(1, asd_cor)
+p1b <- patientAnalysis(1, td_cor)
+p2a <- patientAnalysis(2, asd_cor)
+p2b <- patientAnalysis(2, td_cor)
+p3a <- patientAnalysis(3, asd_cor)
+p3b <- patientAnalysis(3, td_cor)
+p4a <- patientAnalysis(4, asd_cor)
+p4b <- patientAnalysis(4, td_cor)
+p5a <- patientAnalysis(5, asd_cor)
+p5b <- patientAnalysis(5, td_cor)
+p6a <- patientAnalysis(6, asd_cor)
+p6b <- patientAnalysis(6, td_cor)
+```
+
+From the results above, it is difficult to determine what kind of differences might be between the two groups, as the threshold levels are pretty similar to each other and so are the number of edges.
+
+```{r}
+f1 <- patientAnalysisP(asd_comb_cor)
+f2 <- patientAnalysisP(td_comb_cor)
+```
+
+The same result is found in the pooled data.
+
+### Point 3
+
+At last, we can compare the differences in the two graphs. To do this, we firstly create a function that takes as input the matrix containing the edges' values and the number of edges a vertex must have to be included in the final graph.
+
+```{r}
+represent_graphically <- function(m, n){
+  g <- graph.incidence(m)
+  plot(delete.vertices(simplify(g), degree(g)<n), vertex.color = "lightblue", vertex.label.cex = .1,
+       vertex.size = .1)
+}
+```
+
+Next, we use this function to see the graph for the previous patients, setting the number of connections to at least 1. 
+
+In the plots below, the left graph belongs to an individual with autism, while the right one is individual without autism.
+
+```{r}
+par(mfrow=c(1,2))
+represent_graphically(p1a, 1)
+represent_graphically(p1b, 1)
+represent_graphically(p2a, 1)
+represent_graphically(p2b, 1)
+represent_graphically(p3a, 1)
+represent_graphically(p3b, 1)
+represent_graphically(p4a, 1)
+represent_graphically(p4b, 1)
+represent_graphically(p5a, 1)
+represent_graphically(p5b, 1)
+represent_graphically(p6a, 1)
+represent_graphically(p6b, 1)
+```
+
+
+From the graphs, it seems clear to see that there are indeed some differences between the patients of the two different groups (line # = 1, 3, 4, 6). The first one, from the person with autism, has two major clusters of highly connected vertices, while the second one appears to be more uniform. Since these vertices and edges represent areas of the brain and their connection, this is to be expected. It makes sense for a person with autism to have certain areas of the brain that are more developed and highly linked, while lacking in some other areas, compared to the average non-autistic person.
+
+On the other hand, this is not observable in all graphs (line # = 2, 5), where the difference between patients cannot be observed as clearly. Therefore, in our somewhat limited dataset, these differences are not consistent. A possible explanation might be found in the data itself, since it was collected from adolescents (15-20 years), whose brains are still in development. 
+
+When we look at the merged data for the groups, the following graphical representation can be considered.
+
+```{r}
+represent_graphically(f1, 1)
+represent_graphically(f2, 1)
+```
+
+Unexpectedly, there is no clear difference between 2 groups with the pooled data. 
+
+A remarkable addition can be made when raising the number of connections needed to put an edge. This way, we observe how the brain of people with autism tends to have a more highly connected network when we raise the number of connections to 10, compared to the second group. 
+
+```{r}
+par(mfrow=c(1,2))
+represent_graphically(p1a, 10)
+represent_graphically(p1b, 10)
+represent_graphically(p2a, 10)
+represent_graphically(p2b, 10)
+represent_graphically(p3a, 10)
+represent_graphically(p3b, 10)
+represent_graphically(p4a, 10)
+represent_graphically(p4b, 10)
+represent_graphically(p5a, 10)
+represent_graphically(p5b, 10)
+represent_graphically(p6a, 10)
+represent_graphically(p6b, 10)
+```
+
+From this, we can gather that the brain of people with autism tend to have more highly connected areas compared to those of people without autism.
+
+Let's see if the same result can be driven from the pooled data!
+
+We now try to replicate the experiment in the pooled data, by taking a threshold of 6 connections rather than 10, as there is no node with more than 6 connections in either group.
+
+```{r}
+par(mfrow=c(1,2))
+represent_graphically(f1, 6)
+represent_graphically(f2, 6)
+```
+
+In contrast with the raw data, here we find that the 2nd group has more vertices with more than 6 connections. 
+
+## Without applying bonferroni
+
+When jumping the bonferroni step, we fail to adjust the value of alpha based on the number of hypotheses. Therefore, the obtained confidence intervals will be much broader, resulting in more edges being selected. This can be seen graphically below:
+
+```{r}
+p1anob <- patientAnalysis(1, asd_cor, bonferroni = FALSE)
+p1bnob <- patientAnalysis(1, td_cor, bonferroni = FALSE)
+represent_graphically(p1anob, 1)
+represent_graphically(p1bnob, 1)
+```
+
+Clearly, there are more nodes than before. Ultimately, this results in more false discoveries and the amount of edges in those graphs is clear proof of this.
+
+### Conclusion
+
+To recap, we have seen some graphs based on the correlations between different areas of the brain of some individuals, to try and find a difference between people with autism and people without it. From individual graphs, it seems like the former are more likely to have areas that are highly connected and areas that are more isolated, while the latter tend to have more uniformly connected vertices. However, these differences are not consistent.
+
+One difference that is consistent is the amount of vertices that are highly connected in the graphs (more than 10 edges). Here, we found that people with autism tend to have more such vertices compared to the non-autistic subjects.

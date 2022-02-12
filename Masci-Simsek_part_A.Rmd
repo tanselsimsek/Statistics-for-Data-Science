@@ -1,0 +1,194 @@
+---
+title: "Homework 1 - Part A"
+output: html_document
+---
+
+### Leonardo Masci and Tansel Simsek (Group 20)
+
+In this exercise, we are asked to implement a randomized max-cut algorithm and to analyze its performance by comparing its results with those of a given function (`maxcut`), which gives the optimal solution of the Max-Cut problem.
+In order to achieve this, we will first define a small graph, find its max-cut via the two methods mentioned above and compare the results. Then, we will move on to a bigger graph, to check the impact of the graph's size on the two methods.
+
+Firstly, we prepare the environment, by requiring all the packages we will need. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggraph)
+library(igraph)
+library(sdpt3r)
+library(Matrix)
+```
+
+Now, we want to set up a simulation to analyze the effectiveness of the randomized max-cut algorithm. In order to achieve this, we start off with a notable small graph: using the function `make_graph` from the package `igraph`, we create a "Bull" graph, which has 5 vertices and 5 edges.
+
+```{r}
+bull<-make_graph("Bull")
+plot(bull,vertex.color="gold",vertex.label.cex=0.7)
+```
+
+Next, we compute the max-cut by using the `maxcut` function from the `sdpt3r` package. In order to take advantage of this function, we first need to convert our plot into a matrix. After that, we are able to apply the function and obtain the maximum cut of the graph, whose size constitutes our optimal value. 
+The maximum cut will be a negative number, but we turn it into a positive number since we are interested in its size.
+
+```{r}
+matrix_bull <-as.matrix(as_adjacency_matrix(bull, type = c("both", "upper", "lower"),
+                        attr = NULL, edges = FALSE, names = TRUE,
+                        sparse = igraph_opt("sparsematrices")))
+
+out<-maxcut(matrix_bull)
+opt<-(out$pobj)*(-1)
+opt
+```
+
+We get a Opt of 4.25 for the Bull graph. 
+
+Now, we implement our own algorithm, being the randomized max-cut algorithm. Our goal is to see the average cut we can obtain in this way, therefore we run it 1000 times and take the average. 
+In the algorithm we flip a coin for each vertex: we add said vertex to the subset U if we get tails and discard it if we get heads. We then extract the size of the cut obtained from removing from the original Bull graph all the vertices not found in U, and finally calculate the mean of such cuts.
+
+```{r}
+#preliminary variables we will need
+avr_cuts<-c()
+v<-length(V(bull))
+V(bull)$name <- as.character(1:v)
+
+#we run the algorithm 1000 times
+average_cuts=0
+M=1000
+
+#the randomized max-cut algorithm
+for (x in 1:M){
+  coin<-c()
+  for(u in 1:v){
+    coin=sample(c(0,1),v,replace=TRUE,prob=c(.5,.5))
+  }
+  U<-c()
+  notU<-c()
+  for (i in c(1:v)){
+    if(coin[i]==1){
+      U<-c(U,i)
+    }
+    if(coin[i]==0){
+      notU<-c(notU,i)
+    }
+  }
+  if (length(U)>0){
+    bulltest<-subgraph.edges(bull,E(bull)[inc(V(bull)[U])])
+    for (m in U){
+      for (j in U){
+        if (are.connected(bulltest, V(bulltest)$name==m ,V(bulltest)$name==j)){
+          bulltest <- delete.edges(bulltest,E(bulltest,P=c(which(V(bulltest)$name==m),
+                                                           which(V(bulltest)$name==j))))
+        }
+      }  
+    }
+    average_cuts =  average_cuts + gsize(bulltest)
+    avr_cuts <- c(avr_cuts,gsize(bulltest))
+  }
+}
+average_cuts = average_cuts/M
+average_cuts
+```
+
+So the average cut is equal to 2.5.
+
+After running the algorithm, we now plot the distribution of the number of cuts obtained within the simulation.
+
+```{r}
+nf <- layout( matrix(c(1,2), ncol=2) )
+hist(avr_cuts , breaks=4 , border=F , col=rgb(0.1,0.8,0.3,0.5) , xlab="number of cuts" , main="")
+boxplot(avr_cuts , xlab="cut" , col=rgb(0.8,0.8,0.3,0.5) , las=2)
+```
+
+From the plots above we can see that in our final output we do not take into consideration the times when no vertices are cut off or when all of them are, since none of those constitute an actual cut. Instead, we observe that the most common cut is between 2 and 3, which is also equal to the average cut. This is because the distribution of the number of cuts in the simulation is a normal distribution. This is more clear in the next example, where the number of cuts is bigger.
+
+Lastly, we compare this average cut with Opt/2.
+
+```{r}
+print(paste0("Average cut-size of the bull graph is ", as.character(average_cuts),"."))
+print(paste0("Half optimal cut value of the bull graph is ",as.character(abs(opt/2)),"."))
+```
+
+Therefore, the average cut obtained with the randomized algorithm is bigger than the theoretical bound Opt/2. We did obtain a satisfactory expected cut, so our algorithm seems to be very effective.
+
+Before drawing any final conclusions, we want to repeat the experiment with a bigger graph, and analyze the new results. In order to achieve this, we selected the notable graph "Coxeter", from the same `make_graph` function mentioned above. This graph has
+28 vertices and 42 edges.
+
+```{r}
+c<-make_graph("Coxeter")
+
+plot(c,vertex.color="gold",vertex.label.cex=0.7)
+```
+
+Now, we compute the size of the cuts obtained via the two methods, again running the randomized algorithm 1000 times.
+
+```{r}
+#preliminary variables needed
+avr_cuts2<-c()
+v<-length(V(c))
+V(c)$name <- as.character(1:v)
+
+#we run the algorithm 1000 times
+average_cuts2=0
+M=1000
+
+#randomized algorithm
+for (t in 1:M){
+  coin<-c()
+  for(u in 1:v){
+    coin=sample(c(0,1),v,replace=TRUE,prob=c(.5,.5))
+  }
+  U<-c()
+  notU<-c()
+  for (i in c(1:v)){
+    if(coin[i]==1){
+      U<-c(U,i)
+    }
+    if(coin[i]==0){
+      notU<-c(notU,i)
+    }
+  }
+  if (length(U)>0){
+    test<-subgraph.edges(c,E(c)[inc(V(c)[U])])
+    for (m in U){
+      for (j in U){
+        if (are.connected(test, V(test)$name==m ,V(test)$name==j)){
+          test <- delete.edges(test, E(test,P=c(which(V(test)$name==m),
+                                                          which(V(test)$name==j))))
+        }
+      } 
+    }
+    average_cuts2 =  average_cuts2 + gsize(test)
+    avr_cuts2 <- c(avr_cuts2,gsize(test))
+  }
+}
+
+average_cuts2 = average_cuts2/M
+nf <- layout( matrix(c(1,2), ncol=2) )
+hist(avr_cuts2 , breaks=14 , border=F , col=rgb(0.1,0.8,0.3,0.5) , xlab="number of cuts" , main="")
+boxplot(avr_cuts2 , xlab="cut" , col=rgb(0.8,0.8,0.3,0.5) , las=2)
+
+#maxcut function
+B<-as.matrix(as_adjacency_matrix(c, type = c("both", "upper", "lower"),
+                                 attr = NULL, edges = FALSE, names = TRUE,
+                                 sparse = igraph_opt("sparsematrices")))
+out<-maxcut(B)
+opt2<-(out$pobj)*(-1)
+
+```
+
+We can see that the distribution of number of cuts among the simulations corresponds to a normal distribution, centering on the average cut.
+
+``` {r}
+#the two results
+print(paste0("Average cut-size of the coxeter graph is ", as.character(average_cuts2),"."))
+print(paste0("Half optimal cut value of the coxeter graph is ",as.character(abs(opt2/2)),"."))
+```
+
+Once again, we find that the final average cut of our randomized graph is greater than that of the expected optimal value. To compare this result with the one found for the smaller graph, we compute the relative cuts.
+
+``` {r}
+print(average_cuts/(opt/2))
+print(average_cuts2/(opt2/2))
+```
+
+We find that the size of the graph does have an impact on the randomized algorithm, in that it makes it less efficient, although it does remain bigger than the theoretical bound.
+
+In conclusion, the expected size of the cut obtained with this randomized max-cut algorithm seems to be performing pretty well, consistently giving results higher than the designed limit value. The latter is defined as half of the optimal cut, which is found by applying a tailored function to the graph. Finally, our algorithm loses effectiveness in comparison to the max-cut function for bigger graphs.
